@@ -1,5 +1,5 @@
 sweep_config = {
-        'method': 'random',  
+        'method': 'grid',  
         'metric': {
             'name': 'Iter',  
             'goal': 'minimize' 
