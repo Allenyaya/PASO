@@ -725,7 +725,7 @@ def main():
     
     if args.sweep:
         # 创建新的sweep
-        from config.sweep_config_llm_1 import sweep_config
+        from config.sweep_config_llm2 import sweep_config
         # sweep_config = setup_sweep_configuration()
         sweep_id = wandb.sweep(sweep_config, project='NIPS_2025_ParaOptimizer')
         print(f"Created sweep with ID: {sweep_id}")
