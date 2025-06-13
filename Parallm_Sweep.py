@@ -17,15 +17,15 @@ import wandb
 
 class Config:
     # 训练参数
-    batch_size = 16
+    batch_size = 8
     num_epochs = 1
     max_steps = 1000  # 总迭代步数
-    learning_rate = 5e-5
+    learning_rate = 6e-5
     momentum = 0.9
     
     # 加速配置
     P = 7  # 窗口大小
-    threshold = 1e-5  # 误差阈值
+    threshold = 7e-2  # 误差阈值
     ema_decay = 0.9  # 阈值指数移动平均衰减率
     adaptivity_type = 'mean'  # 自适应策略: 'mean' 或 'median'
     val_check_interval = 5  # 验证间隔(秒)
@@ -34,11 +34,11 @@ class Config:
     
     # 系统配置
     seed = 42  # 随机种子
-    device_count = torch.cuda.device_count()  # GPU数量
+    device_count = 7  # GPU数量
     max_length = 512  # 最大序列长度
     
     # 优化器类型
-    optimizer_type = 'adamw'
+    optimizer_type = 'sgd'
     
     # 训练模式
     training_mode = 'parallel'
@@ -127,14 +127,13 @@ def optimizer_state_clone(optimizer_from, optimizer_to):
     optimizer_to.load_state_dict(optimizer_from.state_dict())
 
 
-def run(rank, total_ranks, queues, config, model, tokenizer, train_loader, test_loader,run_id):
+def run(rank, total_ranks, queues, config, model, tokenizer, train_loader, test_loader,wandb_run):
     device = torch.device(f"cuda:{rank}")
     model = model.to(device)
     print('Start process', rank)
 
     if rank == 0:
         
-        wandb_run = wandb.init(project='NIPS_2025_ParaOptimizer',id=run_id,resume="allow")
         train_loop(config, model, tokenizer, queues, test_loader, device, wandb_run)
         for _ in range(total_ranks - 1):
             queues[0].put(None)
@@ -238,7 +237,7 @@ def train_loop(config, model, tokenizer, queues, test_loader, device,wandb_run):
     running_perplexity = 0.0
     running_accuracy = 0.0
     running_f1 = 0.0
-    running_total = 0
+    running_total = 0.0
 
     
     # 克隆初始模型到窗口中的每个位置
@@ -379,6 +378,7 @@ def train_loop(config, model, tokenizer, queues, test_loader, device,wandb_run):
     del optimizers
     
     elapsed = time.time() - start_time
+    elapsed_str = str(timedelta(seconds=int(elapsed))).split('.')[0]
     
     test_loss, test_perplexity, test_accuracy, test_f1 = evaluate_model(final_model, test_loader, device)
     
@@ -391,8 +391,7 @@ def train_loop(config, model, tokenizer, queues, test_loader, device,wandb_run):
         "time":elapsed
     })
     
- 
-    elapsed_str = str(timedelta(seconds=int(elapsed))).split('.')[0]
+
     print(f"\nTraining completed in {elapsed_str}")
     print(f"Final test loss: {test_loss:.4f}")
     print(f"Final test perplexity: {test_perplexity:.2f}")
@@ -623,18 +622,20 @@ def train_with_config(config_dict=None):
     
     # 初始化wandb
     wandb_run = wandb.init(project='NIPS_2025_ParaOptimizer', config=config_dict)
-    run_id = wandb_run.id
     
     # 使用wandb的config更新参数（允许sweep覆盖）
     for key, value in wandb.config.items():
         if hasattr(config, key):
             setattr(config, key, value)
+            
+    from datasets import disable_caching
+    disable_caching()
     
     # 加载数据集和tokenizer
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     tokenizer.pad_token = tokenizer.eos_token
     
-    dataset = load_dataset("wikitext", "wikitext-2-v1")
+    dataset = load_dataset("wikitext", "wikitext-2-v1",download_mode="reuse_dataset_if_exists")
     
     # 数据预处理
     def preprocess(examples):
@@ -675,10 +676,10 @@ def train_with_config(config_dict=None):
         num_processes = min(config.device_count, torch.cuda.device_count())
 
         if num_processes == 1:
-            run(0, 1, queues, config, model, tokenizer, train_loader, test_loader,run_id)
+            run(0, 1, queues, config, model, tokenizer, train_loader, test_loader,wandb_run)
         else:
             for rank in range(num_processes):
-                p = mp.Process(target=run, args=(rank, num_processes, queues, config, model, tokenizer, train_loader, test_loader,run_id))
+                p = mp.Process(target=run, args=(rank, num_processes, queues, config, model, tokenizer, train_loader, test_loader,wandb_run))
                 p.start()
                 processes.append(p)
 
@@ -724,8 +725,8 @@ def main():
     
     if args.sweep:
         # 创建新的sweep
-        # from config.sweep_config_llm1 import sweep_config
-        sweep_config = setup_sweep_configuration()
+        from config.sweep_config_1 import sweep_config
+        # sweep_config = setup_sweep_configuration()
         sweep_id = wandb.sweep(sweep_config, project='NIPS_2025_ParaOptimizer')
         print(f"Created sweep with ID: {sweep_id}")
         
