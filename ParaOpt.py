@@ -344,9 +344,9 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
             }
             
             # 更新统计数据
-            running_loss += result['loss']
-            running_correct += result['correct']
-            running_total += result['batch_size']
+            # running_loss += result['loss']
+            # running_correct += result['correct']
+            # running_total += result['batch_size']
         
         # 从窗口起点开始执行定点迭代
         rollout_model = models[begin_idx]
@@ -378,7 +378,10 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
             if ind is None and (error > thresh or i == parallel_len - 1):
                 ind = step + 1
                 optimizer_state_clone(rollout_optimizer, optimizers[step+1])
-            
+            if ind is None or step < ind:               
+                running_loss += metrics['loss']
+                running_correct += metrics['correct']
+                running_total += metrics['batch_size']            
             # 从同步点开始克隆模型
             if ind is not None:
                 models[step+1] = rollout_model.clone(device, models[step+1])
@@ -407,14 +410,18 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
         # 周期性输出进度
         if total_iters % 5 == 0 and running_total > 0:
             accuracy = 100 * running_correct / running_total
-            avg_loss = running_loss / total_iters
+            avg_loss = running_loss / begin_idx
             elapsed = time.time() - start_time
             elapsed_str = str(timedelta(seconds=int(elapsed))).split('.')[0]
-            
+            wandb.log({
+                "Train_Acc":accuracy,
+                "Train_Loss":avg_loss,
+                "Iter":total_iters
+            })
+                        
             pbar.set_description(
                 f'Loss: {avg_loss:.4f} | Acc: {accuracy:.2f}% | Time: {elapsed_str}'
             )
-            wandb.log({"Train_Acc":accuracy,"Train_Loss":avg_loss,"Iter":total_iters,"Steps":begin_idx})
         
         test_accuracy = evaluate_model(models[begin_idx], criterion, test_loader, device)
         wandb.log({"Test_Acc":test_accuracy,"Iter":total_iters,"Steps":begin_idx})
@@ -435,12 +442,13 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
     # 训练结束
     pbar.close()
     
+    elapsed = time.time() - start_time
+    elapsed_str = str(timedelta(seconds=int(elapsed))).split('.')[0]
+    
     # 最终测试
     final_model = models[T]
     final_accuracy = evaluate_model(final_model, criterion, test_loader, device)
     
-    elapsed = time.time() - start_time
-    elapsed_str = str(timedelta(seconds=int(elapsed))).split('.')[0]
     print(f"\nTraining completed in {elapsed_str}")
     print(f"Final test accuracy: {final_accuracy:.2f}%")
     print(f"Total iterations: {total_iters} (vs {T} normal iterations)")
