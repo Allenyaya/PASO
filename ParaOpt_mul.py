@@ -27,7 +27,7 @@ class Config:
     momentum = 0.9
     
     # 加速配置
-    P = 13  # 窗口大小
+    P = 7  # 窗口大小
     threshold = 0.000002696  # 误差阈值
     ema_decay = 0.853  # 阈值指数移动平均衰减率
     adaptivity_type = 'median'  # 自适应策略: 'mean' 或 'median'

@@ -609,11 +609,11 @@ def setup_sweep_configuration():
     
     return sweep_config
 
-def train_with_config(config_dict=None):
+def train_with_config(config=None):
     """专为wandb.sweep设计的训练函数"""
-    
-    # 初始化基本配置
-    config = Config()
+    if config==None:
+        # 初始化基本配置
+        config = Config()
     
     # 设置随机种子
     torch.manual_seed(config.seed)
@@ -621,7 +621,7 @@ def train_with_config(config_dict=None):
     torch.cuda.manual_seed(config.seed)
     
     # 初始化wandb
-    wandb_run = wandb.init(project='NIPS_2025_ParaOptimizer', config=config_dict)
+    wandb_run = wandb.init(project='NIPS_2025_ParaOptimizer',config=config)
     
     # 使用wandb的config更新参数（允许sweep覆盖）
     for key, value in wandb.config.items():
@@ -743,9 +743,9 @@ def main():
         config = Config()
         config.update_from_args(args)
         
-        # 创建从args转换来的config_dict
-        config_dict = {k: v for k, v in vars(args).items() if hasattr(config, k) and v is not None}
-        train_with_config(config_dict)
+        # # 创建从args转换来的config_dict
+        # config_dict = {k: v for k, v in vars(args).items() if hasattr(config, k) and v is not None}
+        train_with_config(config)
 
 if __name__ == "__main__":
     main()
