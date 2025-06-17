@@ -17,7 +17,7 @@
 
     python ParaOpt_mul.py
 
-    P 选择窗口大小 (P+1即GPU数量) 即选择GPU数量
+    device_count 选择GPU数量，下面的程序同理
 
 ## ParaOpt_mul_Sweep.py
 
@@ -37,7 +37,11 @@
 
 运行单次：
 
-    python Parallm_Sweep.py
+    串行：
+    python Parallm_Sweep.py --training_mode serial
+
+    并行：
+    python Parallm_Sweep.py --training_mode parallel
 
 批量实验，创建新的sweep和agent：
 
