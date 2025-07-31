@@ -1,3 +1,4 @@
+import pickle
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -281,6 +282,8 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
     models = [None for _ in range(T+1)]
     optimizers = [None for _ in range(T+1)]
     
+    # 新增：存储参数轨迹
+    param_trajectory = []
     
 
     begin_idx, end_idx = 0, P
@@ -314,6 +317,9 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
                                          betas=(0.9,0.999),
                                          eps=1e-08)
 
+     # 初始化wandb记录
+    wandb.watch(model, log='all', log_freq=10)
+    
     # 主训练循环
     data_iter = iter(train_loader)
     while begin_idx < T:
@@ -380,9 +386,9 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
                 ind = step + 1
                 optimizer_state_clone(rollout_optimizer, optimizers[step+1])
             if ind is None or step < ind:               
-                running_loss += metrics['loss']
-                running_correct += metrics['correct']
-                running_total += metrics['batch_size']            
+                running_loss += metrics[i]['loss']
+                running_correct += metrics[i]['correct']
+                running_total += metrics[i]['batch_size']            
             # 从同步点开始克隆模型
             if ind is not None:
                 models[step+1] = rollout_model.clone(device, models[step+1])
@@ -408,6 +414,13 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
         total_iters += 1
         pbar.update(progress)
         
+        # 新增：每10步记录一次参数
+        if begin_idx % 10 == 0:
+            # 获取当前模型参数并转换为可序列化的numpy数组
+            params = {name: param.cpu().detach().numpy() 
+                     for name, param in models[begin_idx].named_parameters()}
+            param_trajectory.append((begin_idx, params))
+
         # 周期性输出进度
         if total_iters % 5 == 0 and running_total > 0:
             accuracy = 100 * running_correct / running_total
@@ -455,7 +468,7 @@ def train_loop_parallel_simulation(config, model, criterion, train_loader, test_
     print(f"Total iterations: {total_iters} (vs {T} normal iterations)")
     print(f"Effective speed-up: {T/total_iters:.2f}x")
     
-    return final_model
+    return final_model, param_trajectory
 
 
 def evaluate_model(model, criterion, test_loader, device):
@@ -483,6 +496,9 @@ def train_loop_serial(config, model, criterion, train_loader, test_loader):
     model = model.to(device)
     total_iters = 0
     
+    # 新增：存储参数轨迹
+    param_trajectory = []
+
     if config.optimizer_type.lower() == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=config.learning_rate, momentum=config.momentum)
     elif config.optimizer_type.lower() == 'adam':
@@ -544,6 +560,12 @@ def train_loop_serial(config, model, criterion, train_loader, test_loader):
                 f'Loss: {avg_loss:.4f} | Acc: {avg_acc:.2f}% | Time: {elapsed_str}'
             )
         
+        if step % 10 == 0:
+            # 获取当前模型参数并转换为可序列化的numpy数组
+            params = {name: param.cpu().detach().numpy() 
+                     for name, param in model.named_parameters()}
+            param_trajectory.append((step, params))
+
         pbar.update(1)
     
     pbar.close()
@@ -556,7 +578,7 @@ def train_loop_serial(config, model, criterion, train_loader, test_loader):
     print(f"\nTraining completed in {elapsed_str}")
     print(f"Final test accuracy: {test_accuracy:.2f}%")
     
-    return model
+    return model, param_trajectory
 
 
 def setup_arg_parser():
@@ -625,10 +647,16 @@ def main():
     print(f"Using model: {config.model_name}")
     
     if config.training_mode.lower() == 'parallel':
-        trained_model = train_loop_parallel_simulation(config, model, criterion, train_loader, test_loader)
+        trained_model, param_trajectory = train_loop_parallel_simulation(config, model, criterion, train_loader, test_loader)
     else:
-        trained_model = train_loop_serial(config, model, criterion, train_loader, test_loader)
-    
+        trained_model, param_trajectory = train_loop_serial(config, model, criterion, train_loader, test_loader)
+
+    # 保存参数轨迹
+    trajectory_file = f'{config.model_name}_{config.training_mode}_trajectory.pkl'
+    with open(trajectory_file, 'wb') as f:
+        pickle.dump(param_trajectory, f)
+    print(f"Parameter trajectory saved to '{trajectory_file}'")
+
     # 保存最终模型
     model_save_path = f'{config.model_name}_model.pth'
     torch.save(trained_model.state_dict(), model_save_path)
