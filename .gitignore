@@ -1,2 +1,4 @@
 wandb/
 data/
+.pth
+.pkl
